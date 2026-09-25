@@ -10,3 +10,5 @@
 2026-09-25 09:12:04,498 [INFO]   WebSocket: /media   (binary audio+video relay)
 2026-09-25 09:12:04,498 [INFO]   DB:        C:\Users\DELL\Downloads\Chatooz\joyful-hawking\server\chatooz.db
 2026-09-25 09:12:04,498 [INFO] Watchdog Health Monitoring loop started
+2026-09-25 11:31:19,623 [INFO] OTP sent successfully to v8929731578@gmail.com
+2026-09-25 11:31:19,643 [INFO] 127.0.0.1 [25/Sep/2026:11:31:16 +0530] "POST /auth/send-otp HTTP/1.1" 200 507 "-" "Python-urllib/3.12"
