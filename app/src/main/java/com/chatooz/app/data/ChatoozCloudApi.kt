@@ -243,10 +243,15 @@ object ChatoozCloudApi {
         }
     }
 
+    data class SendOtpResponse(
+        val message: String,
+        val otp: String? = null
+    )
+
     /**
      * Sends OTP to the given email address.
      */
-    suspend fun sendOtpToEmail(email: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun sendOtpToEmail(email: String): Result<SendOtpResponse> = withContext(Dispatchers.IO) {
         return@withContext try {
             val url = "${AppConfig.apiBaseUrl}/auth/send-otp"
             val payload = org.json.JSONObject().apply { put("email", email) }.toString()
@@ -259,7 +264,10 @@ object ChatoozCloudApi {
             val response = httpClient.newCall(request).execute()
             val respBody = response.body?.string() ?: ""
             if (response.isSuccessful) {
-                Result.success("OTP sent to $email")
+                val json = try { org.json.JSONObject(respBody) } catch (_: Exception) { org.json.JSONObject() }
+                val msg = json.optString("message", "Verification code sent to $email")
+                val otp = json.optString("otp", "").takeIf { it.isNotBlank() }
+                Result.success(SendOtpResponse(msg, otp))
             } else {
                 val errorMsg = try { org.json.JSONObject(respBody).optString("error", "Failed to send OTP") } catch (_: Exception) { "Failed to send OTP" }
                 Result.failure(Exception(errorMsg))

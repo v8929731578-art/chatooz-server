@@ -231,9 +231,16 @@ fun OtpVerificationScreen(
     val authLoading by viewModel.authLoading.collectAsState()
     val pendingEmail by viewModel.pendingEmail.collectAsState()
     val otpTimerSeconds by viewModel.otpTimerSeconds.collectAsState()
+    val suggestedOtp by viewModel.suggestedOtp.collectAsState()
     val isDark by viewModel.isDark.collectAsState()
 
     var otpCode by remember { mutableStateOf("") }
+
+    LaunchedEffect(suggestedOtp) {
+        if (!suggestedOtp.isNullOrBlank() && otpCode.isBlank()) {
+            otpCode = suggestedOtp ?: ""
+        }
+    }
 
     val bg = if (isDark) DarkBg else LightBg
     val surface = if (isDark) DarkCard else LightSurface
@@ -399,6 +406,15 @@ fun OtpVerificationScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "Didn't receive email? Please check your Spam/Junk or Promotions folder.",
+                fontSize = 13.sp,
+                color = textSec,
+                textAlign = TextAlign.Center
+            )
 
             Spacer(modifier = Modifier.height(40.dp))
         }

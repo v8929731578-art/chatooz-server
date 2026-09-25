@@ -68,6 +68,9 @@ class ChatoozViewModel(app: Application) : AndroidViewModel(app) {
     private val _authSuccessMessage = MutableStateFlow<String?>(null)
     val authSuccessMessage: StateFlow<String?> = _authSuccessMessage.asStateFlow()
 
+    private val _suggestedOtp = MutableStateFlow<String?>(null)
+    val suggestedOtp: StateFlow<String?> = _suggestedOtp.asStateFlow()
+
     // ─── Home & Chats ────────────────────────────────────────────────
     private val _chats = MutableStateFlow<List<Chat>>(emptyList())
     val chats: StateFlow<List<Chat>> = _chats.asStateFlow()
@@ -336,9 +339,10 @@ class ChatoozViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val result = ChatoozCloudApi.sendOtpToEmail(trimmedEmail)
             _authLoading.value = false
-            result.onSuccess {
+            result.onSuccess { sendRes ->
                 _pendingEmail.value = trimmedEmail
-                _authSuccessMessage.value = "Verification code sent to $trimmedEmail"
+                _suggestedOtp.value = sendRes.otp
+                _authSuccessMessage.value = sendRes.message
                 _screen.value = Screen.OtpVerification
                 startOtpCountdown()
             }.onFailure { err ->
