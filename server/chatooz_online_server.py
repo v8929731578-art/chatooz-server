@@ -821,6 +821,14 @@ async def h_logo_png(request):
         return web.Response(text="Logo not found", status=404)
     return web.FileResponse(logo_path, headers={"Cache-Control": "public, max-age=86400"})
 
+async def h_privacy_policy(request):
+    privacy_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html")
+    if os.path.exists(privacy_path):
+        with open(privacy_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return web.Response(text=content, content_type="text/html", status=200, headers=CORS)
+    return web.Response(text="<h1>Chatooz Privacy Policy</h1><p>Contact: v8929731578@gmail.com</p>", content_type="text/html", status=200, headers=CORS)
+
 def _parse_device_info(ua_str: str) -> str:
     ua = str(ua_str or "")
     if "Android" in ua:
@@ -5654,6 +5662,9 @@ def make_app():
     app.router.add_get("/apk",              h_download_apk)
     app.router.add_get("/logo.png",         h_logo_png)
     app.router.add_get("/logo",             h_logo_png)
+    app.router.add_get("/privacy",          h_privacy_policy)
+    app.router.add_get("/privacy-policy",   h_privacy_policy)
+    app.router.add_get("/privacy.html",     h_privacy_policy)
     app.router.add_get("/sync",             h_sync_get)
     app.router.add_post("/sync",            h_sync_post)
     app.router.add_put("/sync",             h_sync_post)
