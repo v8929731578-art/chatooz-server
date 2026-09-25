@@ -840,6 +840,9 @@ def _parse_device_info(ua_str: str) -> str:
 async def h_download_apk(request):
     candidate_paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "chatooz_app.apk"),
+        os.path.join(os.getcwd(), "chatooz_app.apk"),
+        os.path.join(os.getcwd(), "server", "chatooz_app.apk"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "chatooz_app.apk"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "build", "outputs", "apk", "debug", "app-debug.apk"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "app-debug.apk"),
     ]
@@ -848,6 +851,19 @@ async def h_download_apk(request):
         if os.path.exists(p) and os.path.getsize(p) > 1000000:
             apk_path = p
             break
+
+    if not apk_path:
+        # Search parent and current directory for any valid .apk
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        for root, _, files in os.walk(base_dir):
+            for file in files:
+                if file.endswith(".apk"):
+                    fp = os.path.join(root, file)
+                    if os.path.getsize(fp) > 1000000:
+                        apk_path = fp
+                        break
+            if apk_path:
+                break
 
     if not apk_path:
         return web.Response(text="APK not found on server", status=404)
