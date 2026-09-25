@@ -732,15 +732,14 @@ private fun ModernChatItemRow(
     }
 
     val allStatuses by viewModel.statuses.collectAsState()
-    val friendUser = remember(chat.friendId, allStatuses) {
-        viewModel.storage.getUserById(chat.friendId)
-    }
-    val fallbackAvatar = remember(chat.friendId, allStatuses) {
-        allStatuses.find { it.userId == chat.friendId }?.userAvatarUrl
-    }
-    val resolvedAvatarUrl = chat.friendAvatarUrl?.ifBlank { null }
-        ?: friendUser?.avatarUrl?.ifBlank { null }
+    val allUsers by viewModel.allUsers.collectAsState()
+    val liveFriend = allUsers.find { it.id == chat.friendId } ?: viewModel.storage.getUserById(chat.friendId)
+    val fallbackAvatar = allStatuses.find { it.userId == chat.friendId }?.userAvatarUrl
+    val resolvedAvatarUrl = liveFriend?.avatarUrl?.ifBlank { null }
+        ?: chat.friendAvatarUrl?.ifBlank { null }
         ?: fallbackAvatar?.ifBlank { null }
+    val resolvedAvatarColor = liveFriend?.avatarColor ?: chat.friendAvatarColor
+    val resolvedFriendName = liveFriend?.name?.ifBlank { null } ?: chat.friendName
 
     val isUnread = chat.unreadCount > 0
     val rowBg = if (isUnread) {
@@ -766,8 +765,8 @@ private fun ModernChatItemRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             ChatoozAvatar(
-                name = chat.friendName,
-                avatarColor = chat.friendAvatarColor,
+                name = resolvedFriendName,
+                avatarColor = resolvedAvatarColor,
                 avatarUrl = resolvedAvatarUrl,
                 size = 52.dp,
                 showOnlineBadge = false

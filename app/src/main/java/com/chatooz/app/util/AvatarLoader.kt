@@ -85,27 +85,33 @@ object AvatarLoader {
                 "${AppConfig.apiBaseUrl.trimEnd('/')}/${urlOrPath.trimStart('/')}"
             }
 
-            // Check disk cache
+            // Check disk cache (use path identifier so domain changes don't invalidate cached avatars)
+            val cacheKey = if (urlOrPath.contains("/avatar/")) "/avatar/" + urlOrPath.substringAfter("/avatar/") else urlOrPath
             val diskCacheDir = File(context.cacheDir, "avatar_cache").apply { mkdirs() }
-            val fileName = "avatar_" + Math.abs(fullUrl.hashCode()) + ".jpg"
+            val fileName = "avatar_" + Math.abs(cacheKey.hashCode()) + ".jpg"
             val diskFile = File(diskCacheDir, fileName)
 
-            if (diskFile.exists() && diskFile.length() > 0) {
-                return decodeSampledBitmap(diskFile.absolutePath, 256, 256)
+            if (diskFile.exists() && diskFile.length() > 200) {
+                val cachedBmp = decodeSampledBitmap(diskFile.absolutePath, 256, 256)
+                if (cachedBmp != null) return cachedBmp
             }
 
             // Fetch from network
             val request = Request.Builder()
                 .url(fullUrl)
                 .header("Bypass-Tunnel-Reminder", "true")
-                .header("User-Agent", "Chatooz-Android/3.6")
+                .header("User-Agent", "Chatooz-Android/6.0")
                 .build()
             httpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful && response.body != null) {
                     val bytes = response.body!!.bytes()
-                    FileOutputStream(diskFile).use { it.write(bytes) }
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    return if (bmp != null) rotateBitmapIfRequired(bmp, bytes) else null
+                    if (bytes.size > 200) {
+                        try {
+                            FileOutputStream(diskFile).use { it.write(bytes) }
+                        } catch (e: Exception) {}
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        return if (bmp != null) rotateBitmapIfRequired(bmp, bytes) else null
+                    }
                 }
             }
         } catch (e: Exception) {

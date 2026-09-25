@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import struct
 import random
 import smtplib
@@ -136,8 +137,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS friend_requests (
             id TEXT PRIMARY KEY, sender_id TEXT, sender_username TEXT,
             sender_name TEXT, sender_avatar_color INTEGER DEFAULT 0,
+            sender_avatar_url TEXT DEFAULT '',
             receiver_id TEXT, receiver_username TEXT, receiver_name TEXT,
             receiver_avatar_color INTEGER DEFAULT 0,
+            receiver_avatar_url TEXT DEFAULT '',
             status TEXT DEFAULT 'PENDING', timestamp INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS messages (
@@ -214,6 +217,16 @@ def init_db():
             details TEXT DEFAULT '',
             timestamp INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS apk_downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT DEFAULT '',
+            country TEXT DEFAULT 'India',
+            city TEXT DEFAULT '',
+            device_info TEXT DEFAULT 'Android Device',
+            user_agent TEXT DEFAULT '',
+            timestamp INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_apk_dl_time ON apk_downloads(timestamp);
         CREATE TABLE IF NOT EXISTS call_diagnostics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             call_id TEXT NOT NULL UNIQUE,
@@ -287,6 +300,17 @@ def init_db():
         s_cols = [c[1] for c in cur.execute("PRAGMA table_info(statuses)").fetchall()]
         if "likes" not in s_cols:
             cur.execute("ALTER TABLE statuses ADD COLUMN likes TEXT DEFAULT '[]'")
+
+        fr_cols = [c[1] for c in cur.execute("PRAGMA table_info(friend_requests)").fetchall()]
+        if "sender_avatar_color" not in fr_cols:
+            cur.execute("ALTER TABLE friend_requests ADD COLUMN sender_avatar_color INTEGER DEFAULT 0")
+        if "sender_avatar_url" not in fr_cols:
+            cur.execute("ALTER TABLE friend_requests ADD COLUMN sender_avatar_url TEXT DEFAULT ''")
+        if "receiver_avatar_color" not in fr_cols:
+            cur.execute("ALTER TABLE friend_requests ADD COLUMN receiver_avatar_color INTEGER DEFAULT 0")
+        if "receiver_avatar_url" not in fr_cols:
+            cur.execute("ALTER TABLE friend_requests ADD COLUMN receiver_avatar_url TEXT DEFAULT ''")
+
         conn.commit()
     except Exception as e:
         log.info(f"Schema alter check: {e}")
@@ -305,8 +329,10 @@ def db_load() -> dict:
         reqs = [dict(r) for r in conn.execute(
             """SELECT id, sender_id as senderId, sender_username as senderUsername,
                sender_name as senderName, sender_avatar_color as senderAvatarColor,
+               sender_avatar_url as senderAvatarUrl,
                receiver_id as receiverId, receiver_username as receiverUsername,
                receiver_name as receiverName, receiver_avatar_color as receiverAvatarColor,
+               receiver_avatar_url as receiverAvatarUrl,
                status, timestamp FROM friend_requests"""
         ).fetchall()]
         msgs_raw = conn.execute(
@@ -369,7 +395,12 @@ def db_merge(payload: dict) -> dict:
                 phone=CASE WHEN excluded.phone != '' THEN excluded.phone ELSE users.phone END,
                 address=CASE WHEN excluded.address != '' THEN excluded.address ELSE users.address END,
                 avatar_color=excluded.avatar_color,
-                avatar_url=CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE users.avatar_url END,
+                avatar_url=CASE
+                    WHEN excluded.avatar_url LIKE '/avatar/%' THEN excluded.avatar_url
+                    WHEN users.avatar_url LIKE '/avatar/%' THEN users.avatar_url
+                    WHEN excluded.avatar_url != '' AND excluded.avatar_url NOT LIKE '/data/%' THEN excluded.avatar_url
+                    ELSE users.avatar_url
+                END,
                 bio=CASE WHEN excluded.bio != '' THEN excluded.bio ELSE users.bio END
             """, {"id":uid,"name":u.get("name",""),"username":u.get("username",""),
                   "email":u.get("email",""),"phone":u.get("phone",""),"address":u.get("address",""),
@@ -378,20 +409,28 @@ def db_merge(payload: dict) -> dict:
                   "bio":u.get("bio",""),"createdAt":u.get("createdAt",0)})
 
         for r in payload.get("friend_requests", []):
-            ex = conn.execute("SELECT status FROM friend_requests WHERE id=?", (r.get("id"),)).fetchone()
+            s_url = r.get("senderAvatarUrl", "") or ""
+            r_url = r.get("receiverAvatarUrl", "") or ""
+            ex = conn.execute("SELECT status, sender_avatar_url, receiver_avatar_url FROM friend_requests WHERE id=?", (r.get("id"),)).fetchone()
             if ex:
                 cs, ns = ex["status"], r.get("status","PENDING")
                 if cs in ("ACCEPTED","DECLINED") and ns == "PENDING": continue
-                conn.execute("UPDATE friend_requests SET status=? WHERE id=?", (ns, r.get("id")))
+                final_s_url = s_url if s_url else (ex["sender_avatar_url"] or "")
+                final_r_url = r_url if r_url else (ex["receiver_avatar_url"] or "")
+                conn.execute("""UPDATE friend_requests SET 
+                    status = ?,
+                    sender_avatar_url = ?,
+                    receiver_avatar_url = ?
+                    WHERE id = ?""", (ns, final_s_url, final_r_url, r.get("id")))
             else:
                 conn.execute("""INSERT OR IGNORE INTO friend_requests
-                    (id,sender_id,sender_username,sender_name,sender_avatar_color,
-                     receiver_id,receiver_username,receiver_name,receiver_avatar_color,status,timestamp)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (id,sender_id,sender_username,sender_name,sender_avatar_color,sender_avatar_url,
+                     receiver_id,receiver_username,receiver_name,receiver_avatar_color,receiver_avatar_url,status,timestamp)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (r.get("id",""),r.get("senderId",""),r.get("senderUsername",""),
-                     r.get("senderName",""),r.get("senderAvatarColor",0),
+                     r.get("senderName",""),r.get("senderAvatarColor",0),s_url,
                      r.get("receiverId",""),r.get("receiverUsername",""),
-                     r.get("receiverName",""),r.get("receiverAvatarColor",0),
+                     r.get("receiverName",""),r.get("receiverAvatarColor",0),r_url,
                      r.get("status","PENDING"),r.get("timestamp",0)))
 
         for m in payload.get("messages", []):
@@ -743,25 +782,35 @@ async def h_signaling_ws(request):
 
     return ws
 
-async def h_version(request):
+def _read_version_properties() -> dict:
     prop_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "version.properties")
-    version_code = 32
-    version_name = "4.1"
+    props = {
+        "VERSION_CODE": "51",
+        "VERSION_NAME": "6.0",
+        "CHANGELOG": "✨ New update available with latest performance improvements & features!"
+    }
     if os.path.exists(prop_path):
         try:
             with open(prop_path, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.startswith("VERSION_CODE="):
-                        version_code = int(line.strip().split("=")[1])
-                    elif line.startswith("VERSION_NAME="):
-                        version_name = line.strip().split("=")[1]
+                    line = line.strip()
+                    if "=" in line and not line.startswith("#"):
+                        k, v = line.split("=", 1)
+                        props[k.strip()] = v.strip()
         except Exception:
             pass
+    return props
+
+async def h_version(request):
+    props = _read_version_properties()
+    version_code = int(props.get("VERSION_CODE", 51))
+    version_name = props.get("VERSION_NAME", "6.0")
+    changelog = props.get("CHANGELOG", f"✨ v{version_name} Update: New features and enhancements are ready!")
     return json_resp({
         "versionCode": version_code,
         "versionName": version_name,
         "downloadUrl": "/download",
-        "changelog": "✨ v6.0 Update: Smooth continuous voice streaming! Optimized jitter buffer, pre-buffering & zero voice dropouts!"
+        "changelog": changelog
     })
 
 
@@ -772,10 +821,53 @@ async def h_logo_png(request):
         return web.Response(text="Logo not found", status=404)
     return web.FileResponse(logo_path, headers={"Cache-Control": "public, max-age=86400"})
 
+def _parse_device_info(ua_str: str) -> str:
+    ua = str(ua_str or "")
+    if "Android" in ua:
+        m = re.search(r'\(([^)]+)\)', ua)
+        if m:
+            parts = m.group(1).split(";")
+            for p in reversed(parts):
+                p = p.strip()
+                if "Build" in p: p = p.split("Build")[0].strip()
+                if p and not p.startswith("Linux") and not p.startswith("Android"):
+                    return p
+        return "Android Device"
+    elif "Windows" in ua: return "Windows PC"
+    elif "iPhone" in ua or "iPad" in ua: return "Apple iOS"
+    return "Mobile Browser"
+
 async def h_download_apk(request):
     apk_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "build", "outputs", "apk", "debug", "app-debug.apk")
     if not os.path.exists(apk_path):
         return web.Response(text="APK not found on server", status=404)
+    
+    # Track download
+    try:
+        ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For") or request.remote or "127.0.0.1"
+        country = request.headers.get("CF-IPCountry") or "India"
+        city = request.headers.get("CF-IPCity") or ""
+        ua = request.headers.get("User-Agent", "")
+        dev = _parse_device_info(ua)
+        now = int(time.time() * 1000)
+        
+        async with _db_lock:
+            conn = _get_conn()
+            try:
+                conn.execute(
+                    "INSERT INTO apk_downloads (ip, country, city, device_info, user_agent, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                    (ip, country, city, dev, ua, now)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        
+        loc_str = f"{city}, {country}" if city else country
+        record_activity("APK_DOWNLOAD", "guest", loc_str, f"Downloaded APK on {dev} from {loc_str}")
+        log.info(f"APK download tracked: {loc_str} ({dev})")
+    except Exception as e:
+        log.debug(f"Download tracking error: {e}")
+        
     return web.FileResponse(apk_path, headers={"Content-Disposition": "attachment; filename=\"Chatooz_Latest.apk\""})
 
 async def h_profile_avatar(request):
@@ -809,11 +901,20 @@ async def h_profile_avatar(request):
         async with _db_lock:
             conn = _get_conn()
             try:
+                # Update user profile
                 conn.execute("UPDATE users SET avatar_url = ? WHERE id = ?", (avatar_url, user_id))
+                # Update recent statuses
+                conn.execute("UPDATE statuses SET user_avatar_url = ? WHERE user_id = ?", (avatar_url, user_id))
+                # Update friend requests where user is sender or receiver
+                conn.execute("UPDATE friend_requests SET sender_avatar_url = ? WHERE sender_id = ?", (avatar_url, user_id))
+                conn.execute("UPDATE friend_requests SET receiver_avatar_url = ? WHERE receiver_id = ?", (avatar_url, user_id))
+                user_info = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
+                u_name = user_info["name"] if user_info else user_id
                 conn.commit()
             finally:
                 conn.close()
 
+        record_activity("PROFILE_AVATAR", user_id, u_name, f"Updated profile picture -> {avatar_url}")
         log.info(f"Updated profile picture for user {user_id} -> {avatar_url}")
         return json_resp({"status": "ok", "avatarUrl": avatar_url})
     except Exception as e:
@@ -1728,6 +1829,9 @@ def _collect_admin_stats_dict():
         activities = [dict(r) for r in conn.execute("SELECT id, event_type as eventType, actor_id as actorId, actor_name as actorName, details, timestamp FROM activity_logs ORDER BY timestamp DESC LIMIT 60").fetchall()]
 
         db_size_kb = os.path.getsize(DB_PATH) // 1024 if os.path.exists(DB_PATH) else 0
+        total_downloads = conn.execute("SELECT COUNT(*) FROM apk_downloads").fetchone()[0]
+        recent_downloads = [dict(r) for r in conn.execute("SELECT id, country, city, device_info as deviceInfo, timestamp FROM apk_downloads ORDER BY id DESC LIMIT 50").fetchall()]
+        app_version = _read_version_properties().get("VERSION_NAME", "6.0")
         uptime_seconds = int(time.time() - SERVER_START_TIME)
 
         return {
@@ -1743,6 +1847,9 @@ def _collect_admin_stats_dict():
             "activeStories": active_stories_count,
             "dbSizeKb": db_size_kb,
             "uptimeSeconds": uptime_seconds,
+            "totalDownloads": total_downloads,
+            "recentDownloads": recent_downloads,
+            "appVersion": app_version,
             "users": users,
             "calls": calls,
             "messages": recent_messages,
@@ -1753,6 +1860,86 @@ def _collect_admin_stats_dict():
         }
     finally:
         conn.close()
+
+
+
+async def h_admin_release_update(request):
+    """
+    POST /admin/api/system/release-update
+    Body: { "versionName": "6.1", "versionCode": 52, "changelog": "...", "broadcast": true }
+    Publishes a new app release so all users get automatically prompted to update.
+    """
+    if not is_admin_authenticated(request):
+        return json_resp({"error": "Unauthorized. Please log in to admin panel."}, 401)
+
+    try:
+        body = await request.json()
+        version_name = str(body.get("versionName", "")).strip()
+        version_code = int(body.get("versionCode", 0))
+        changelog = str(body.get("changelog", "")).strip()
+        send_broadcast = bool(body.get("broadcast", False))
+
+        if not version_name or version_code <= 0:
+            return json_resp({"error": "Valid Version Name and Version Code (>0) are required"}, 400)
+
+        prop_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "version.properties")
+        with open(prop_path, "w", encoding="utf-8") as f:
+            f.write(f"VERSION_CODE={version_code}\nVERSION_NAME={version_name}\n")
+            if changelog:
+                # Store single line changelog
+                clean_changelog = changelog.replace("\r", "").replace("\n", " ")
+                f.write(f"CHANGELOG={clean_changelog}\n")
+
+        recipients = 0
+        if send_broadcast:
+            title = f"🚀 Chatooz Update Available (v{version_name})!"
+            msg_text = f"{changelog or 'New features and improvements are ready.'}\n\nUpdate directly when prompted in app or download the latest APK!"
+            full_text = f"📢 **{title}**\n\n{msg_text}"
+            now = int(time.time() * 1000)
+            async with _db_lock:
+                conn = _get_conn()
+                try:
+                    users = conn.execute("SELECT id FROM users WHERE (is_deleted IS NULL OR is_deleted = 0)").fetchall()
+                    recipients = len(users)
+                    for u in users:
+                        uid = u["id"]
+                        mid = f"bcast_{int(time.time()*1000)}_{secrets.token_hex(4)}"
+                        conn.execute("""
+                            INSERT INTO messages (id, chat_id, sender_id, text, timestamp, is_from_me, status, type)
+                            VALUES (?, ?, ?, ?, ?, 0, 'SENT', 'TEXT')
+                        """, (mid, uid, "chatooz_system", full_text, now))
+                    conn.commit()
+                finally:
+                    conn.close()
+
+        record_activity("VERSION_RELEASE", "admin", "admin", f"Released App Update v{version_name} (Code {version_code})")
+        log.info(f"Released App Update v{version_name} (Code {version_code}), broadcast to {recipients} users")
+        return json_resp({
+            "status": "ok",
+            "versionName": version_name,
+            "versionCode": version_code,
+            "changelog": changelog,
+            "broadcastSent": send_broadcast,
+            "recipients": recipients
+        })
+    except Exception as e:
+        return json_resp({"error": str(e)}, 500)
+
+async def h_admin_vacuum_db(request):
+    if not is_admin_authenticated(request):
+        return json_resp({"error": "Unauthorized"}, 401)
+    try:
+        async with _db_lock:
+            conn = _get_conn()
+            try:
+                conn.execute("VACUUM")
+                conn.commit()
+            finally:
+                conn.close()
+        record_activity("DB_VACUUM", "admin", "admin", "Optimized & Vacuumed SQLite database")
+        return json_resp({"status": "ok", "message": "Database optimized successfully"})
+    except Exception as e:
+        return json_resp({"error": str(e)}, 500)
 
 async def h_admin_stats(request):
     """
@@ -3169,6 +3356,13 @@ def _get_v33_dashboard_html():
             </div>
             <div class="kpi-card">
                 <div class="kpi-info">
+                    <h4>Total Downloads</h4>
+                    <div class="kpi-num" id="stat-downloads" style="color:#34D399;">--</div>
+                </div>
+                <div class="kpi-icon" style="background:rgba(16,185,129,0.15); color:#34D399;">📥</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-info">
                     <h4>DB Size</h4>
                     <div class="kpi-num" id="stat-db">--</div>
                 </div>
@@ -3185,6 +3379,7 @@ def _get_v33_dashboard_html():
                 <button class="tab-btn" id="tab-messages-btn" onclick="switchTab('messages')">💬 Messages</button>
                 <button class="tab-btn" id="tab-groups-btn" onclick="switchTab('groups')">👥 Groups</button>
                 <button class="tab-btn" id="tab-stories-btn" onclick="switchTab('stories')">📸 Stories</button>
+                <button class="tab-btn" id="tab-downloads-btn" onclick="switchTab('downloads')">📥 Downloads & Geo</button>
                 <button class="tab-btn" id="tab-broadcast-btn" onclick="switchTab('broadcast')">📢 Broadcast</button>
                 <button class="tab-btn" id="tab-system-btn" onclick="switchTab('system')">⚙️ Maintenance</button>
                 <button class="tab-btn" id="tab-health-btn" onclick="switchTab('health')">🖥️ System Health</button>
@@ -3344,14 +3539,87 @@ def _get_v33_dashboard_html():
         </div>
 
         <!-- 7. BROADCAST SECTION -->
+        
+        <!-- DOWNLOADS & GEO-ANALYTICS SECTION -->
+        <div id="downloads-section" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="font-size: 18px; font-weight: 800; color: white; display: flex; align-items: center; gap: 8px;">
+                        📥 APK Downloads & Location Tracking
+                    </h3>
+                    <p style="color: var(--text-sec); font-size: 12px; margin-top: 2px;">
+                        Live geographic tracking, devices, and installation stats
+                    </p>
+                </div>
+                <button class="btn-opt" onclick="loadStats()" style="background: var(--primary); color: white; border-color: var(--primary);">🔄 Refresh Downloads</button>
+            </div>
+
+            <!-- Download Stats Grid -->
+            <div class="health-grid">
+                <div class="health-card">
+                    <div class="health-card-header">
+                        <div class="health-card-title">📈 Total Installations</div>
+                        <div class="status-pill pill-online">LIVE TRACKER</div>
+                    </div>
+                    <div class="health-metrics">
+                        <div class="metric-row"><span>Total Downloads</span><span class="metric-val" id="dl-total-count" style="font-size:18px; color:#34D399;">0</span></div>
+                        <div class="metric-row"><span>Active Users Registered</span><span class="metric-val" id="dl-active-users">0</span></div>
+                        <div class="metric-row"><span>Conversion Rate</span><span class="metric-val" id="dl-conversion">100%</span></div>
+                    </div>
+                </div>
+                <div class="health-card">
+                    <div class="health-card-header">
+                        <div class="health-card-title">🗺️ Top Geographic Locations</div>
+                        <div class="status-pill pill-online">GEO IP</div>
+                    </div>
+                    <div class="health-metrics" id="dl-top-locations">
+                        <div class="metric-row"><span>India (General)</span><span class="metric-val" style="color:#818CF8;">Active</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Downloads Log Table -->
+            <div class="card-panel">
+                <div class="panel-title">📋 Recent APK Downloads Log</div>
+                <div class="panel-subtitle">Real-time log of users who downloaded or updated the Chatooz APK</div>
+                
+                <div class="table-card" style="margin-top: 12px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Location (City / Country)</th>
+                                <th>Device / OS</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="downloads-tbody">
+                            <tr><td colspan="4" class="empty-row">No downloads recorded yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <div id="broadcast-section" style="display: none;">
             <div class="card-panel">
                 <div class="panel-title">📢 Send System-Wide Broadcast</div>
                 <div class="panel-subtitle">Deliver an instant push notification and official announcement message directly into every registered user's chat.</div>
                 
+                <!-- Quick Broadcast Templates -->
+                <div style="margin-bottom: 14px;">
+                    <label style="display:block; font-size:11px; font-weight:700; color:var(--text-sec); margin-bottom:6px; text-transform:uppercase;">⚡ Quick Templates</label>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" class="btn-opt" onclick="applyBcastTemplate('update')" style="font-size:11.5px; padding:4px 10px;">🚀 New Update v6.0</button>
+                        <button type="button" class="btn-opt" onclick="applyBcastTemplate('welcome')" style="font-size:11.5px; padding:4px 10px;">✨ Welcome to Chatooz</button>
+                        <button type="button" class="btn-opt" onclick="applyBcastTemplate('maint')" style="font-size:11.5px; padding:4px 10px;">🔧 Server Notice</button>
+                        <button type="button" class="btn-opt" onclick="applyBcastTemplate('clear')" style="font-size:11.5px; padding:4px 10px; color:#F87171;">✕ Clear</button>
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <label>Broadcast Title (Optional)</label>
-                    <input type="text" id="bcastTitle" placeholder="e.g. 🚀 Welcome to Chatooz v3.9!">
+                    <input type="text" id="bcastTitle" placeholder="e.g. 🚀 Welcome to Chatooz v6.0!">
                 </div>
                 <div class="form-row">
                     <label>Announcement Message</label>
@@ -3604,6 +3872,47 @@ def _get_v33_dashboard_html():
         </div>
 
         <div id="system-section" style="display: none;">
+
+            <!-- App Version & Instant Auto-Update Release Card -->
+            <div class="card-panel" style="margin-bottom: 16px; border: 1px solid rgba(99, 102, 241, 0.4); background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+                    <div>
+                        <div class="panel-title" style="color: #818CF8; font-size: 16px;">🚀 App Auto-Update & Version Release Manager</div>
+                        <div class="panel-subtitle">Publish new app versions. Every active Chatooz user will immediately get an automatic in-app update popup!</div>
+                    </div>
+                    <div style="background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); padding: 6px 14px; border-radius: 8px;">
+                        <span style="font-size: 11px; color: var(--text-sec); text-transform: uppercase; font-weight: 700;">Live Version:</span>
+                        <strong id="liveAppVerBadge" style="color: #34D399; font-size: 14px; margin-left: 6px;">v6.0 (Code 51)</strong>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 12px;">
+                    <div class="form-row" style="margin-bottom: 0;">
+                        <label>New Version Name</label>
+                        <input type="text" id="relVerName" placeholder="e.g. 6.1" style="width:100%;">
+                    </div>
+                    <div class="form-row" style="margin-bottom: 0;">
+                        <label>New Version Code (Must be higher)</label>
+                        <input type="number" id="relVerCode" placeholder="e.g. 52" style="width:100%;">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label>Release Notes & Changelog (Shown in User's Update Popup)</label>
+                    <textarea id="relChangelog" placeholder="✨ What's new in this version... e.g. High-speed voice calls, UI enhancements, and bug fixes." style="min-height: 70px;"></textarea>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-sec); font-size: 13px;">
+                        <input type="checkbox" id="relBroadcastCheck" checked style="width: 16px; height: 16px; accent-color: var(--primary);">
+                        <span>📢 Also send instant broadcast message to all users</span>
+                    </label>
+                    <button class="btn-primary-send" id="relPublishBtn" onclick="publishAppRelease()" style="background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%); padding: 9px 20px; font-weight: 700;">
+                        🚀 Publish Update to All Users
+                    </button>
+                </div>
+            </div>
+
             <div class="card-panel" style="margin-bottom: 16px;">
                 <div class="panel-title">⚙️ System Tools & Database Maintenance</div>
                 <div class="panel-subtitle">Perform server optimizations, database backups, and check real-time telemetry.</div>
@@ -4040,6 +4349,23 @@ def _get_v33_dashboard_html():
                 document.getElementById('stat-groups').textContent = data.totalGroups || 0;
                 document.getElementById('stat-stories').textContent = (data.statuses ? data.statuses.length : data.activeStories) || 0;
                 document.getElementById('stat-db').textContent = (data.dbSizeKb || 0) + ' KB';
+                
+                const dlCount = data.totalDownloads || (data.recentDownloads ? data.recentDownloads.length : 0);
+                const statDl = document.getElementById('stat-downloads');
+                if (statDl) statDl.textContent = dlCount;
+                const dlTotalCount = document.getElementById('dl-total-count');
+                if (dlTotalCount) dlTotalCount.textContent = dlCount;
+                const dlActiveUsers = document.getElementById('dl-active-users');
+                if (dlActiveUsers) dlActiveUsers.textContent = data.totalUsers || 0;
+
+                currentAppVersion = data.appVersion || '6.0';
+                const bcastTitleInput = document.getElementById('bcastTitle');
+                if (bcastTitleInput && !bcastTitleInput.value) {
+                    bcastTitleInput.placeholder = `e.g. 🚀 Welcome to Chatooz v${currentAppVersion}!`;
+                }
+
+                allDownloads = data.recentDownloads || [];
+                renderDownloads(allDownloads);
 
                 allUsers = data.users || [];
                 allGroups = data.groups || [];
@@ -4114,6 +4440,109 @@ def _get_v33_dashboard_html():
                 );
                 renderStories(filtered);
             }
+        }
+
+        
+        let allDownloads = [];
+        let currentAppVersion = '6.0';
+
+        function applyBcastTemplate(type) {
+            const tInput = document.getElementById('bcastTitle');
+            const mInput = document.getElementById('bcastMsg');
+            if (type === 'update') {
+                tInput.value = `✨ Chatooz v${currentAppVersion} Live Update Released!`;
+                mInput.value = `🚀 Naya update live ho chuka hai!\n\n• Smooth continuous voice calling\n• Ultra-fast real-time messaging\n• Automatic server connectivity\n\nDownload now: ${window.location.origin}/download`;
+            } else if (type === 'welcome') {
+                tInput.value = `🎉 Welcome to Chatooz!`;
+                mInput.value = `Welcome to Chatooz — Private, high-speed and secure messaging & HD calling platform! Connect with your friends and enjoy real-time chat.`;
+            } else if (type === 'maint') {
+                tInput.value = `🔧 Scheduled Infrastructure Maintenance`;
+                mInput.value = `Chatooz servers are performing a scheduled maintenance upgrade. All services remain active with zero message loss.`;
+            } else if (type === 'clear') {
+                tInput.value = '';
+                mInput.value = '';
+            }
+        }
+
+        
+        async function publishAppRelease() {
+            const verName = document.getElementById('relVerName').value.trim();
+            const verCode = parseInt(document.getElementById('relVerCode').value.trim(), 10);
+            const changelog = document.getElementById('relChangelog').value.trim();
+            const broadcast = document.getElementById('relBroadcastCheck').checked;
+            const btn = document.getElementById('relPublishBtn');
+
+            if (!verName || !verCode || isNaN(verCode)) {
+                alert('Please provide a valid Version Name (e.g. 6.1) and Version Code (e.g. 52).');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to publish App Update v${verName} (Code ${verCode}) to ALL users?`)) {
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = 'Publishing Update...';
+
+            try {
+                const res = await fetch('/admin/api/system/release-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+                    body: JSON.stringify({ versionName: verName, versionCode: verCode, changelog: changelog, broadcast: broadcast })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'ok') {
+                    alert(`✅ Update v${verName} (Code ${verCode}) published successfully!\n\nAll active Chatooz users will automatically receive the update prompt within 15 seconds.`);
+                    loadStats();
+                } else {
+                    alert('Error publishing update: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '🚀 Publish Update to All Users';
+            }
+        }
+
+        async function vacuumDatabase() {
+            if (!confirm('Optimize and vacuum database now?')) return;
+            try {
+                const token = localStorage.getItem('chatooz_admin_token') || '';
+                const res = await fetch('/admin/api/system/vacuum-db', {
+                    method: 'POST',
+                    headers: token ? { 'X-Admin-Token': token } : {}
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('✨ Database optimized successfully!');
+                    loadStats();
+                } else {
+                    alert('Error: ' + (data.error || 'Optimization failed'));
+                }
+            } catch (err) {
+                alert('Request failed: ' + err);
+            }
+        }
+
+        function renderDownloads(dls) {
+            const tbody = document.getElementById('downloads-tbody');
+            if (!tbody) return;
+            if (!dls || dls.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No APK downloads recorded yet. Share the download link to see live locations!</td></tr>';
+                return;
+            }
+            tbody.innerHTML = dls.map(d => {
+                const loc = (d.city ? `${d.city}, ` : '') + (d.country || 'India');
+                return `
+                    <tr>
+                        <td style="color: var(--text-sec); font-size: 11.5px; white-space: nowrap;">${new Date(d.timestamp).toLocaleString()}</td>
+                        <td><strong style="color:#818CF8;">📍 ${escapeHtml(loc)}</strong></td>
+                        <td style="color: white; font-weight: 600;">📱 ${escapeHtml(d.deviceInfo || 'Android Device')}</td>
+                        <td><span class="status-pill pill-online">SUCCESS</span></td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         function renderUsers(users) {
@@ -5219,6 +5648,8 @@ def make_app():
     app.router.add_post("/admin/api/broadcast",         h_admin_broadcast)
     app.router.add_post("/admin/api/system/purge-otps", h_admin_purge_otps)
     app.router.add_get("/admin/api/backup",             h_admin_db_backup)
+    app.router.add_post("/admin/api/system/vacuum-db",   h_admin_vacuum_db)
+    app.router.add_post("/admin/api/system/release-update", h_admin_release_update)
     # Call signalling
     app.router.add_get("/call/signal",      h_signal_get)
     app.router.add_post("/call/signal",     h_signal_post)

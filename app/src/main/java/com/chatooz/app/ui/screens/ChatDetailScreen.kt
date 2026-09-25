@@ -347,6 +347,11 @@ fun ChatDetailScreen(
                         )
                     }
 
+                    val liveFriend = allUsers.find { it.id == screenState.friendId }
+                    val liveAvatarUrl = liveFriend?.avatarUrl?.ifBlank { null } ?: screenState.friendAvatarUrl
+                    val liveAvatarColor = liveFriend?.avatarColor ?: screenState.friendAvatarColor
+                    val liveFriendName = liveFriend?.name?.ifBlank { null } ?: screenState.friendName
+
                     Row(
                         modifier = Modifier
                             .weight(1f)
@@ -358,9 +363,9 @@ fun ChatDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ChatoozAvatar(
-                            name = screenState.friendName,
-                            avatarColor = screenState.friendAvatarColor,
-                            avatarUrl = screenState.friendAvatarUrl,
+                            name = if (isGroup) screenState.friendName else liveFriendName,
+                            avatarColor = if (isGroup) screenState.friendAvatarColor else liveAvatarColor,
+                            avatarUrl = if (isGroup) screenState.friendAvatarUrl else liveAvatarUrl,
                             size = 42.dp,
                             showOnlineBadge = !isGroup && !isBlocked && !isBlockedByOther
                         )
@@ -369,7 +374,7 @@ fun ChatDetailScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                screenState.friendName,
+                                if (isGroup) screenState.friendName else liveFriendName,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 color = textPrim,
