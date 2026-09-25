@@ -42,10 +42,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Placeholders — overridden per build type below.
-        // Production build MUST NOT point to localhost.
-        buildConfigField("String", "API_BASE_URL", "\"https://chatooz-server.railway.app\"")
-        buildConfigField("String", "MEDIA_WS_URL", "\"wss://chatooz-server.railway.app/media\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://chatooz-server.onrender.com\"")
+        buildConfigField("String", "MEDIA_WS_URL", "\"wss://chatooz-server.onrender.com/media\"")
         buildConfigField("boolean", "IS_DEV_BUILD", "false")
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("chatooz-release-key.jks")
+            storePassword = "chatooz_release_2026"
+            keyAlias = "chatooz"
+            keyPassword = "chatooz_release_2026"
+        }
     }
 
     buildTypes {
@@ -87,7 +95,7 @@ android {
             // Uses HTTPS/WSS endpoint set via CHATOOZ_API_URL gradle property.
             val prodApiUrl = project.findProperty("CHATOOZ_API_URL") as String?
                 ?: System.getenv("CHATOOZ_API_URL")
-                ?: "https://chatooz-server.railway.app"
+                ?: "https://chatooz-server.onrender.com"
             val prodWsUrl = prodApiUrl.trimEnd('/')
                 .replace("https://", "wss://")
                 .replace("http://", "ws://") + "/media"
@@ -97,6 +105,7 @@ android {
             buildConfigField("boolean", "IS_DEV_BUILD", "false")
             manifestPlaceholders["usesCleartextTraffic"] = "false"
 
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
