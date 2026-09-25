@@ -51,12 +51,14 @@ object AppConfig {
             .build()
     }
 
+    const val PERMANENT_CLOUD_URL = "https://chatooz-server.onrender.com"
+
     /**
-     * Remote config anchors for automatic fallback discovery.
+     * Remote config anchors and candidate endpoints for automatic fallback discovery.
      */
-    private val REMOTE_CONFIG_ANCHORS = listOf(
-        "https://raw.githubusercontent.com/vijaay4343/chatooz-config/main/endpoint.json",
-        "https://pastebin.com/raw/ChatoozActiveEndpoint"
+    private val CANDIDATE_ENDPOINTS = listOf(
+        PERMANENT_CLOUD_URL,
+        "https://raw.githubusercontent.com/v8929731578-art/chatooz-server/main/server/endpoint.json"
     )
 
     /**
@@ -67,11 +69,11 @@ object AppConfig {
             val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs = p
             val cached = p.getString(KEY_SERVER_URL, null)
-            if (!cached.isNullOrBlank()) {
+            if (!cached.isNullOrBlank() && !cached.contains("trycloudflare.com")) {
                 dynamicBaseUrl = cached.trimEnd('/')
                 Log.i(TAG, "Loaded cached active server URL: $dynamicBaseUrl")
             } else {
-                dynamicBaseUrl = BuildConfig.API_BASE_URL.trimEnd('/')
+                dynamicBaseUrl = PERMANENT_CLOUD_URL
                 p.edit().putString(KEY_SERVER_URL, dynamicBaseUrl).apply()
             }
             // Trigger asynchronous background health & discovery probe
@@ -180,28 +182,42 @@ object AppConfig {
 
             Log.w(TAG, "Current server URL $current unreachable, probing remote anchors & candidates...")
 
+            // Try candidate endpoints directly first
+            if (checkHealth(PERMANENT_CLOUD_URL)) {
+                updateActiveUrl(context, PERMANENT_CLOUD_URL)
+                Log.i(TAG, "Resolved healthy permanent cloud URL: $PERMANENT_CLOUD_URL")
+                return@withContext PERMANENT_CLOUD_URL
+            }
+
             // Try candidate remote config anchors
-            for (anchor in REMOTE_CONFIG_ANCHORS) {
-                try {
-                    val req = Request.Builder().url(anchor).get().build()
-                    val res = probeClient.newCall(req).execute()
-                    if (res.isSuccessful) {
-                        val body = res.body?.string() ?: ""
-                        res.close()
-                        if (body.isNotBlank()) {
-                            val json = JSONObject(body)
-                            val candidate = json.optString("server_url", "").trim()
-                            if (candidate.isNotBlank() && checkHealth(candidate)) {
-                                updateActiveUrl(context, candidate)
-                                Log.i(TAG, "Resolved healthy server URL from remote anchor: $candidate")
-                                return@withContext candidate
+            for (anchor in CANDIDATE_ENDPOINTS) {
+                if (anchor.startsWith("http://") || anchor.startsWith("https://")) {
+                    if (anchor.endsWith(".json")) {
+                        try {
+                            val req = Request.Builder().url(anchor).get().build()
+                            val res = probeClient.newCall(req).execute()
+                            if (res.isSuccessful) {
+                                val body = res.body?.string() ?: ""
+                                res.close()
+                                if (body.isNotBlank()) {
+                                    val json = JSONObject(body)
+                                    val candidate = json.optString("server_url", "").trim()
+                                    if (candidate.isNotBlank() && checkHealth(candidate)) {
+                                        updateActiveUrl(context, candidate)
+                                        Log.i(TAG, "Resolved healthy server URL from remote anchor: $candidate")
+                                        return@withContext candidate
+                                    }
+                                }
+                            } else {
+                                res.close()
                             }
+                        } catch (e: Exception) {
+                            Log.d(TAG, "Anchor probe failed for $anchor: ${e.message}")
                         }
-                    } else {
-                        res.close()
+                    } else if (checkHealth(anchor)) {
+                        updateActiveUrl(context, anchor)
+                        return@withContext anchor
                     }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Anchor probe failed for $anchor: ${e.message}")
                 }
             }
 
