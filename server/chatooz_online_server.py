@@ -3617,7 +3617,7 @@ def _get_v33_dashboard_html():
                 <div class="panel-title">📋 Recent APK Downloads Log</div>
                 <div class="panel-subtitle">Real-time log of users who downloaded or updated the Chatooz APK</div>
                 
-                <div class="table-card" style="margin-top: 12px;">
+                <div class="table-card table-view-desktop" style="margin-top: 12px;">
                     <table>
                         <thead>
                             <tr>
@@ -3631,6 +3631,9 @@ def _get_v33_dashboard_html():
                             <tr><td colspan="4" class="empty-row">No downloads recorded yet.</td></tr>
                         </tbody>
                     </table>
+                </div>
+                <div class="m-card-list table-view-mobile" id="downloads-mobile-list" style="margin-top: 12px;">
+                    <div class="m-card empty-row">No downloads recorded yet.</div>
                 </div>
             </div>
         </div>
@@ -4006,7 +4009,7 @@ def _get_v33_dashboard_html():
 
         function switchTab(tab) {
             currentTab = tab;
-            const tabKeys = ['users', 'activities', 'calls', 'messages', 'groups', 'stories', 'broadcast', 'system'];
+            const tabKeys = ['users', 'activities', 'calls', 'messages', 'groups', 'stories', 'downloads', 'broadcast', 'system', 'health'];
             tabKeys.forEach(t => {
                 const btn = document.getElementById(`tab-${t}-btn`);
                 const sec = document.getElementById(`${t}-section`);
@@ -4473,6 +4476,14 @@ def _get_v33_dashboard_html():
                     (s.textContent && s.textContent.toLowerCase().includes(query))
                 );
                 renderStories(filtered);
+            } else if (currentTab === 'downloads') {
+                const filtered = allDownloads.filter(d =>
+                    (d.city && d.city.toLowerCase().includes(query)) ||
+                    (d.country && d.country.toLowerCase().includes(query)) ||
+                    (d.deviceInfo && d.deviceInfo.toLowerCase().includes(query)) ||
+                    (d.ip && d.ip.includes(query))
+                );
+                renderDownloads(filtered);
             }
         }
 
@@ -4561,22 +4572,71 @@ def _get_v33_dashboard_html():
 
         function renderDownloads(dls) {
             const tbody = document.getElementById('downloads-tbody');
-            if (!tbody) return;
+            const mobileList = document.getElementById('downloads-mobile-list');
+            const topLocsEl = document.getElementById('dl-top-locations');
+            const totalCountEl = document.getElementById('dl-total-count');
+            const activeUsersEl = document.getElementById('dl-active-users');
+            const convEl = document.getElementById('dl-conversion');
+
+            const total = (dls || []).length;
+            const usersCount = (allUsers || []).length;
+            if (totalCountEl) totalCountEl.textContent = total;
+            if (activeUsersEl) activeUsersEl.textContent = usersCount;
+            if (convEl) {
+                const rate = total > 0 ? Math.min(100, Math.round((usersCount / total) * 100)) : 100;
+                convEl.textContent = rate + '%';
+            }
+
+            // Top locations summary
+            if (topLocsEl && dls && dls.length > 0) {
+                const locCounts = {};
+                dls.forEach(d => {
+                    const l = (d.city ? `${d.city}, ` : '') + (d.country || 'India');
+                    locCounts[l] = (locCounts[l] || 0) + 1;
+                });
+                const sorted = Object.entries(locCounts).sort((a,b) => b[1] - a[1]).slice(0, 4);
+                topLocsEl.innerHTML = sorted.map(([loc, cnt]) => `
+                    <div class="metric-row"><span>${escapeHtml(loc)}</span><span class="metric-val" style="color:#818CF8;">${cnt} dl${cnt > 1 ? 's' : ''}</span></div>
+                `).join('');
+            }
+
             if (!dls || dls.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No APK downloads recorded yet. Share the download link to see live locations!</td></tr>';
+                if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No APK downloads recorded yet. Share the download link to see live locations!</td></tr>';
+                if (mobileList) mobileList.innerHTML = '<div class="m-card empty-row">No APK downloads recorded yet.</div>';
                 return;
             }
-            tbody.innerHTML = dls.map(d => {
-                const loc = (d.city ? `${d.city}, ` : '') + (d.country || 'India');
-                return `
-                    <tr>
-                        <td style="color: var(--text-sec); font-size: 11.5px; white-space: nowrap;">${new Date(d.timestamp).toLocaleString()}</td>
-                        <td><strong style="color:#818CF8;">📍 ${escapeHtml(loc)}</strong></td>
-                        <td style="color: white; font-weight: 600;">📱 ${escapeHtml(d.deviceInfo || 'Android Device')}</td>
-                        <td><span class="status-pill pill-online">SUCCESS</span></td>
-                    </tr>
-                `;
-            }).join('');
+
+            if (tbody) {
+                tbody.innerHTML = dls.map(d => {
+                    const loc = (d.city ? `${d.city}, ` : '') + (d.country || 'India');
+                    return `
+                        <tr>
+                            <td style="color: var(--text-sec); font-size: 11.5px; white-space: nowrap;">${new Date(d.timestamp).toLocaleString()}</td>
+                            <td><strong style="color:#818CF8;">📍 ${escapeHtml(loc)}</strong></td>
+                            <td style="color: white; font-weight: 600;">📱 ${escapeHtml(d.deviceInfo || 'Android Device')}</td>
+                            <td><span class="status-pill pill-online">SUCCESS</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            if (mobileList) {
+                mobileList.innerHTML = dls.map(d => {
+                    const loc = (d.city ? `${d.city}, ` : '') + (d.country || 'India');
+                    return `
+                        <div class="m-card" style="display:flex; flex-direction:column; gap:8px; padding:14px; margin-bottom:10px; background:rgba(30,41,59,0.7); border:1px solid rgba(255,255,255,0.06); border-radius:12px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong style="color:#818CF8; font-size:14px;">📍 ${escapeHtml(loc)}</strong>
+                                <span class="status-pill pill-online">SUCCESS</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; color:var(--text-sec); font-size:12px;">
+                                <span>📱 ${escapeHtml(d.deviceInfo || 'Android Device')}</span>
+                                <span>${new Date(d.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
         }
 
         function renderUsers(users) {
