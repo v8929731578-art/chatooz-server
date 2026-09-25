@@ -5181,11 +5181,29 @@ def _send_otp_email_sync(to_email: str, otp_code: str):
     msg.attach(MIMEText(text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    s = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
-    s.starttls()
-    s.login(SMTP_EMAIL, SMTP_PASS)
-    s.send_message(msg)
-    s.quit()
+    # Try SMTP_SSL on port 465 first (fast & reliable on cloud platforms like Render)
+    try:
+        s = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=8)
+        s.login(SMTP_EMAIL, SMTP_PASS)
+        s.send_message(msg)
+        s.quit()
+        log.info(f"Email OTP sent via SMTP_SSL (465) to {to_email}")
+        return True
+    except Exception as e1:
+        log.warning(f"SMTP_SSL (465) failed: {e1}, attempting STARTTLS (587)...")
+
+    # Fallback to STARTTLS on port 587
+    try:
+        s = smtplib.SMTP("smtp.gmail.com", 587, timeout=8)
+        s.starttls()
+        s.login(SMTP_EMAIL, SMTP_PASS)
+        s.send_message(msg)
+        s.quit()
+        log.info(f"Email OTP sent via STARTTLS (587) to {to_email}")
+        return True
+    except Exception as e2:
+        log.error(f"Both SMTP 465 and 587 failed for {to_email}: {e2}")
+        return False
 
 async def h_auth_send_otp(request):
     """
@@ -5216,15 +5234,17 @@ async def h_auth_send_otp(request):
             finally:
                 conn.close()
 
-        # Send email asynchronously in background executor
+        record_activity("EMAIL_OTP", email, email, f"Generated OTP {otp} for {email}")
+
+        # Dispatch email asynchronously in background executor so client gets immediate response
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _send_otp_email_sync, email, otp)
-        log.info(f"OTP sent successfully to {email}")
+        loop.run_in_executor(None, _send_otp_email_sync, email, otp)
+        log.info(f"OTP generated & email task dispatched for {email}")
 
         return json_resp({"status": "ok", "message": "Verification code sent to email"})
     except Exception as e:
         log.error(f"h_auth_send_otp error: {e}")
-        return json_resp({"error": f"Failed to send email: {str(e)}"}, 500)
+        return json_resp({"error": f"Failed to generate verification code: {str(e)}"}, 500)
 
 async def h_auth_verify_otp(request):
     """
@@ -5339,12 +5359,19 @@ Registered At: {created_str}
         msg.attach(MIMEText(text_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
 
-        s = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
-        s.starttls()
-        s.login(SMTP_EMAIL, SMTP_PASS)
-        s.send_message(msg)
-        s.quit()
-        log.info(f"Admin registration alert sent to {SMTP_EMAIL} for user @{user_info.get('username')}")
+        try:
+            s = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=8)
+            s.login(SMTP_EMAIL, SMTP_PASS)
+            s.send_message(msg)
+            s.quit()
+            log.info(f"Admin registration alert sent to {SMTP_EMAIL} via SSL (465) for user @{user_info.get('username')}")
+        except Exception:
+            s = smtplib.SMTP("smtp.gmail.com", 587, timeout=8)
+            s.starttls()
+            s.login(SMTP_EMAIL, SMTP_PASS)
+            s.send_message(msg)
+            s.quit()
+            log.info(f"Admin registration alert sent to {SMTP_EMAIL} via STARTTLS (587) for user @{user_info.get('username')}")
     except Exception as e:
         log.error(f"Failed to send admin registration alert: {e}")
 
