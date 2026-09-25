@@ -43,6 +43,23 @@ object AutoUpdateManager {
 
     suspend fun checkForUpdate(context: Context): VersionInfo? = withContext(Dispatchers.IO) {
         try {
+            // Do not prompt in-app self APK update if installed via Google Play Store (Play Store handles updates)
+            val isPlayStoreInstall = try {
+                val installer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.getInstallerPackageName(context.packageName)
+                }
+                installer == "com.android.vending"
+            } catch (_: Exception) {
+                false
+            }
+
+            if (isPlayStoreInstall) {
+                return@withContext null
+            }
+
             val url = AppConfig.versionUrl
             val request = Request.Builder().url(url).get().build()
             val response = httpClient.newCall(request).execute()
