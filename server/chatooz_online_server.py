@@ -838,8 +838,18 @@ def _parse_device_info(ua_str: str) -> str:
     return "Mobile Browser"
 
 async def h_download_apk(request):
-    apk_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "build", "outputs", "apk", "debug", "app-debug.apk")
-    if not os.path.exists(apk_path):
+    candidate_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "chatooz_app.apk"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "build", "outputs", "apk", "debug", "app-debug.apk"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "app-debug.apk"),
+    ]
+    apk_path = None
+    for p in candidate_paths:
+        if os.path.exists(p) and os.path.getsize(p) > 1000000:
+            apk_path = p
+            break
+
+    if not apk_path:
         return web.Response(text="APK not found on server", status=404)
     
     # Track download
