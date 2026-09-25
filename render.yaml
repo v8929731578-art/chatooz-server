@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: chatooz-server
+    runtime: python
+    buildCommand: pip install -r server/requirements.txt
+    startCommand: python server/chatooz_online_server.py
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHON_VERSION
+        value: 3.12.0
+    autoDeploy: true

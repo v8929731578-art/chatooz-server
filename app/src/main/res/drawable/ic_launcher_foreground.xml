@@ -1,0 +1,43 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+        WhatsApp-style icon: white speech bubble circle + violet phone inside.
+        Bubble centered at (54,52), radius ~31. Tail at bottom-left like WhatsApp.
+        Phone = two oval cups + handle strip, rotated 45° to match WhatsApp orientation.
+    -->
+
+    <!-- Step 1: White circle speech bubble with bottom-left tail -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+        M54,21
+        C72,21 85,34 85,52
+        C85,70 72,83 54,83
+        L40,83
+        L28,95
+        L33,79
+        C25,73 23,63 23,52
+        C23,34 36,21 54,21 Z"/>
+
+    <!-- Step 2: Violet phone handset (same color as background = WhatsApp "cut-through" effect) -->
+    <!-- Rotated 45° around center of bubble so earpiece is top-right, mouthpiece bottom-left -->
+    <group
+        android:rotation="45"
+        android:pivotX="54"
+        android:pivotY="54">
+
+        <!-- Combined phone shape: top cup + handle + bottom cup as one filled path -->
+        <path
+            android:fillColor="#7C3AED"
+            android:pathData="
+            M47,30 a7,5 0 1,0 14,0 a7,5 0 1,0 -14,0
+            M50,35 L50,73 L58,73 L58,35 Z
+            M47,73 a7,5 0 1,0 14,0 a7,5 0 1,0 -14,0"/>
+
+    </group>
+
+</vector>

@@ -1,0 +1,18 @@
+*.iml
+.gradle
+.idea
+/local.properties
+local.properties
+.DS_Store
+/build
+build/
+app/build/
+/captures
+.externalNativeBuild
+.cxx
+
+# Server secrets
+server/.env
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm

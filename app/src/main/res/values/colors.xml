@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Chatooz brand colors -->
+    <color name="chatooz_indigo">#6366F1</color>
+    <color name="chatooz_violet">#8B5CF6</color>
+    <color name="chatooz_dark_bg">#0B0F19</color>
+    <color name="chatooz_emerald">#10B981</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+</resources>

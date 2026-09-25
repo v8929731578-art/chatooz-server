@@ -1,0 +1,6 @@
+2026-09-22 07:57:01,075 [INFO] DB ready: C:\Users\DELL\Downloads\Chatooz\joyful-hawking\server\chatooz.db
+2026-09-22 07:57:01,080 [INFO] Chatooz Online Server v3.0 starting on http://0.0.0.0:8080
+2026-09-22 07:57:01,081 [INFO]   HTTP:      /health  /sync  /call/signal
+2026-09-22 07:57:01,081 [INFO]   WebSocket: /media   (binary audio+video relay)
+2026-09-22 07:57:01,082 [INFO]   DB:        C:\Users\DELL\Downloads\Chatooz\joyful-hawking\server\chatooz.db
+2026-09-22 07:57:04,336 [INFO] 127.0.0.1 [22/Sep/2026:07:57:04 +0530] "GET /health HTTP/1.1" 200 385 "-" "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-IN) WindowsPowerShell/5.1.26100.9444"
