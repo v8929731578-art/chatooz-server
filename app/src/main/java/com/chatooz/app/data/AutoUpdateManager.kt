@@ -41,54 +41,31 @@ object AutoUpdateManager {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * In-app APK updates are disabled. All future updates are managed and delivered
+     * exclusively through the Google Play Store.
+     */
     suspend fun checkForUpdate(context: Context): VersionInfo? = withContext(Dispatchers.IO) {
-        try {
-            // Do not prompt in-app self APK update if installed via Google Play Store (Play Store handles updates)
-            val isPlayStoreInstall = try {
-                val installer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
-                } else {
-                    @Suppress("DEPRECATION")
-                    context.packageManager.getInstallerPackageName(context.packageName)
-                }
-                installer == "com.android.vending"
-            } catch (_: Exception) {
-                false
-            }
-
-            if (isPlayStoreInstall) {
-                return@withContext null
-            }
-
-            val url = AppConfig.versionUrl
-            val request = Request.Builder().url(url).get().build()
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return@withContext null
-                val versionInfo = json.decodeFromString<VersionInfo>(body)
-                
-                // Get installed app version code
-                val currentVersionCode = try {
-                    val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        pInfo.longVersionCode
-                    } else {
-                        @Suppress("DEPRECATION")
-                        pInfo.versionCode.toLong()
-                    }
-                } catch (e: Exception) {
-                    1L
-                }
-
-                // If server's version code is greater than installed, update is available
-                if (versionInfo.versionCode > currentVersionCode && versionInfo.versionCode > 1) {
-                    return@withContext versionInfo
-                }
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "No update check failure: ${e.message}")
-        }
+        // Disabled: Google Play Store handles all updates automatically.
         null
+    }
+
+    /**
+     * Open Google Play Store listing for Chatooz so users can update directly.
+     */
+    fun openPlayStore(context: Context) {
+        val packageName = context.packageName
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+        }
     }
 
     suspend fun downloadAndInstall(
