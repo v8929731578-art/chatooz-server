@@ -836,43 +836,12 @@ async def h_demo_video(request):
     return web.FileResponse(v_path, headers={"Content-Type": "video/mp4", "Cache-Control": "public, max-age=86400"})
 
 async def h_demo_page(request):
-    html = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chatooz - Foreground Service Demo Video</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
-        .card { background: #1e293b; border-radius: 16px; padding: 24px; max-width: 500px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; border: 1px solid #334155; }
-        h1 { font-size: 20px; color: #818cf8; margin-bottom: 8px; }
-        p { font-size: 14px; color: #94a3b8; margin-bottom: 16px; }
-        video { width: 100%; border-radius: 12px; max-height: 520px; background: #000; }
-        .badge { display: inline-block; background: rgba(52,211,153,0.15); color: #34d399; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 12px; margin-bottom: 12px; }
-        .info { text-align: left; background: #0f172a; border-radius: 8px; padding: 12px; margin-top: 16px; font-size: 13px; color: #cbd5e1; }
-        .info li { margin-bottom: 6px; }
-    </style>
-</head>
-<body>
-<div class="card">
-    <span class="badge">Google Play Verification Demo</span>
-    <h1>Chatooz VoIP Foreground Service</h1>
-    <p>Demonstrating active ongoing voice calling & background notification</p>
-    <video controls autoplay muted loop playsinline>
-        <source src="/demo.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-    </video>
-    <div class="info">
-        <strong>Permission Purpose:</strong>
-        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
-            <li>Maintains uninterrupted WebRTC audio stream when app is in background.</li>
-            <li>Shows persistent ongoing call notification with 1-tap call controls.</li>
-        </ul>
-    </div>
-</div>
-</body>
-</html>"""
-    return web.Response(text=html, content_type="text/html", status=200, headers=CORS)
+    demo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.html")
+    if os.path.exists(demo_path):
+        with open(demo_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return web.Response(text=content, content_type="text/html", status=200, headers=CORS)
+    return web.Response(text="<h1>Chatooz Demo</h1>", content_type="text/html", status=200, headers=CORS)
 
 def _parse_device_info(ua_str: str) -> str:
     ua = str(ua_str or "")
