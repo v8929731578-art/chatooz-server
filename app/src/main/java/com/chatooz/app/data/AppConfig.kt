@@ -51,14 +51,15 @@ object AppConfig {
             .build()
     }
 
-    const val PERMANENT_CLOUD_URL = "https://chatooz-server.onrender.com"
+    const val PERMANENT_CLOUD_URL = "https://useful-european-rhode-sector.trycloudflare.com"
 
     /**
      * Remote config anchors and candidate endpoints for automatic fallback discovery.
      */
     private val CANDIDATE_ENDPOINTS = listOf(
+        "https://raw.githubusercontent.com/v8929731578-art/chatooz-server/main/server/endpoint.json",
         PERMANENT_CLOUD_URL,
-        "https://raw.githubusercontent.com/v8929731578-art/chatooz-server/main/server/endpoint.json"
+        "https://chatooz-server.onrender.com"
     )
 
     /**
@@ -69,7 +70,7 @@ object AppConfig {
             val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs = p
             val cached = p.getString(KEY_SERVER_URL, null)
-            if (!cached.isNullOrBlank() && !cached.contains("trycloudflare.com")) {
+            if (!cached.isNullOrBlank()) {
                 dynamicBaseUrl = cached.trimEnd('/')
                 Log.i(TAG, "Loaded cached active server URL: $dynamicBaseUrl")
             } else {

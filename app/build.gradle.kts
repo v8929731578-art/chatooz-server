@@ -42,8 +42,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Placeholders — overridden per build type below.
-        buildConfigField("String", "API_BASE_URL", "\"https://chatooz-server.onrender.com\"")
-        buildConfigField("String", "MEDIA_WS_URL", "\"wss://chatooz-server.onrender.com/media\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://useful-european-rhode-sector.trycloudflare.com\"")
+        buildConfigField("String", "MEDIA_WS_URL", "\"wss://useful-european-rhode-sector.trycloudflare.com/media\"")
         buildConfigField("boolean", "IS_DEV_BUILD", "false")
     }
 
@@ -95,7 +95,7 @@ android {
             // Uses HTTPS/WSS endpoint set via CHATOOZ_API_URL gradle property.
             val prodApiUrl = project.findProperty("CHATOOZ_API_URL") as String?
                 ?: System.getenv("CHATOOZ_API_URL")
-                ?: "https://chatooz-server.onrender.com"
+                ?: "https://useful-european-rhode-sector.trycloudflare.com"
             val prodWsUrl = prodApiUrl.trimEnd('/')
                 .replace("https://", "wss://")
                 .replace("http://", "ws://") + "/media"
