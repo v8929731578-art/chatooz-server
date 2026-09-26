@@ -127,11 +127,17 @@ class ChatoozBackgroundService : Service() {
                 .setOngoing(true)
                 .build()
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 startForeground(
                     NotificationHelper.SERVICE_NOTIFICATION_ID,
                     notif,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                )
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                startForeground(
+                    NotificationHelper.SERVICE_NOTIFICATION_ID,
+                    notif,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST
                 )
             } else {
                 startForeground(NotificationHelper.SERVICE_NOTIFICATION_ID, notif)
