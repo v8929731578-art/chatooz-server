@@ -803,14 +803,12 @@ def _read_version_properties() -> dict:
 
 async def h_version(request):
     props = _read_version_properties()
-    version_code = int(props.get("VERSION_CODE", 51))
     version_name = props.get("VERSION_NAME", "6.0")
-    changelog = props.get("CHANGELOG", f"✨ v{version_name} Update: New features and enhancements are ready!")
     return json_resp({
-        "versionCode": version_code,
+        "versionCode": 1,
         "versionName": version_name,
         "downloadUrl": "/download",
-        "changelog": changelog
+        "changelog": "Updates are delivered exclusively via Google Play Store."
     })
 
 
