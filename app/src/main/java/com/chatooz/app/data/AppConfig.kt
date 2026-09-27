@@ -51,14 +51,15 @@ object AppConfig {
             .build()
     }
 
-    const val PERMANENT_CLOUD_URL = "https://useful-european-rhode-sector.trycloudflare.com"
+    const val PERMANENT_CLOUD_URL = "https://chatooz.satyavij.com"
 
     /**
      * Remote config anchors and candidate endpoints for automatic fallback discovery.
      */
     private val CANDIDATE_ENDPOINTS = listOf(
+        "https://chatooz.satyavij.com",
+        "https://chat.satyavij.com",
         "https://raw.githubusercontent.com/v8929731578-art/chatooz-server/main/server/endpoint.json",
-        PERMANENT_CLOUD_URL,
         "https://chatooz-server.onrender.com"
     )
 
