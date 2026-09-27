@@ -42,8 +42,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Placeholders — overridden per build type below.
-        buildConfigField("String", "API_BASE_URL", "\"https://useful-european-rhode-sector.trycloudflare.com\"")
-        buildConfigField("String", "MEDIA_WS_URL", "\"wss://useful-european-rhode-sector.trycloudflare.com/media\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://chatooz.satyavij.com\"")
+        buildConfigField("String", "MEDIA_WS_URL", "\"wss://chatooz.satyavij.com/media\"")
         buildConfigField("boolean", "IS_DEV_BUILD", "false")
     }
 
@@ -78,11 +78,10 @@ android {
                 cleartextOk = if (apiUrl.startsWith("https://") || apiUrl.startsWith("wss://")) "false" else "true"
             } else {
                 // Local dev mode — ADB reverse tunnel or emulator
-                // HTTP on port 8080 (sync_server.py), WS on port 8081 (sync_server.py WS relay)
-                apiUrl    = "http://127.0.0.1:8080"
-                wsUrl     = "ws://127.0.0.1:8080/media"
+                apiUrl    = "https://chatooz.satyavij.com"
+                wsUrl     = "wss://chatooz.satyavij.com/media"
                 isDevBuild = true
-                cleartextOk = "true"
+                cleartextOk = "false"
             }
 
             buildConfigField("String",  "API_BASE_URL", "\"$apiUrl\"")
@@ -95,7 +94,7 @@ android {
             // Uses HTTPS/WSS endpoint set via CHATOOZ_API_URL gradle property.
             val prodApiUrl = project.findProperty("CHATOOZ_API_URL") as String?
                 ?: System.getenv("CHATOOZ_API_URL")
-                ?: "https://useful-european-rhode-sector.trycloudflare.com"
+                ?: "https://chatooz.satyavij.com"
             val prodWsUrl = prodApiUrl.trimEnd('/')
                 .replace("https://", "wss://")
                 .replace("http://", "ws://") + "/media"
